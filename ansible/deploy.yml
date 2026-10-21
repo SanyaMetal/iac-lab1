@@ -1,0 +1,56 @@
+---
+- name: Установка Docker и развёртывание приложения
+  hosts: app_servers
+  become: true
+
+  vars:
+    repo_url: "https://github.com/SanyaMetal/iac-lab1.git"
+    repo_version: "main"
+    app_dir: "/opt/iac-lab1"
+
+  tasks:
+    - name: Установить Docker, Docker Compose и Git
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose-v2
+          - git
+          - ca-certificates
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Включить автозапуск Docker и запустить службу
+      ansible.builtin.service:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Получить приложение из Git
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_version }}"
+        update: true
+
+    - name: Собрать образы и запустить контейнеры
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}"
+        state: present
+        build: always
+        wait: true
+        wait_timeout: 120
+
+    - name: Проверить API через фронтенд
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/api/message"
+        status_code: 200
+        return_content: true
+      register: api_response
+      until: api_response.status | default(0) == 200
+      retries: 10
+      delay: 3
+
+    - name: Показать ответ приложения
+      ansible.builtin.debug:
+        var: api_response.json
